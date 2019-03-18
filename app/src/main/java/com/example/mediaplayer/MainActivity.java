@@ -1,12 +1,21 @@
 package com.example.mediaplayer;
 
+import android.Manifest;
+import android.content.ContentResolver;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.media.MediaPlayer;
+import android.net.Uri;
+import android.provider.MediaStore;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 
@@ -26,69 +35,92 @@ public class MainActivity extends AppCompatActivity {
     private TextView timer;
     private Thread timer_thread;
     private Track currentTrack;
-    private int position;
+    private int position = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        setPlayList();
+
+        getPermission();
         bindButtons();
         setOnClickListeners();
-        setupMediaPlayer();
+        setPlayList();
+        try {
+            setupMediaPlayer();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
     }
 
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        mediaPlayer.release();
-        mediaPlayer = null;
-        timer_thread.interrupt();
-
+    public void getPermission() {
+        if(ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(MainActivity.this,
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, 1);
+        }
     }
+
+
+    public void setPlayList(){
+        ContentResolver contentResolver = getContentResolver();
+        Uri songUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+        Cursor songCursor = contentResolver.query(songUri, null, null, null, null);
+
+        playList = new ArrayList<>();
+        position = 0;
+
+        if(songCursor != null && songCursor.moveToFirst()){
+            int songTitle = songCursor.getColumnIndex(MediaStore.Audio.Media.TITLE);
+            int data = songCursor.getColumnIndex(MediaStore.Audio.Media.DATA);
+
+            do{
+                String currentTitle = songCursor.getString(songTitle);
+                String currentData = songCursor.getString(data);
+                playList.add(new Track(currentData, currentTitle));
+            }while (songCursor.moveToNext());
+        }
+    }
+
 
     public void setTimerThread(){
         timer_thread = new Thread(){
             @Override
             public void run(){
                 while(!isInterrupted()){
-                    try{
+                    try {
                         Thread.sleep(1000);
-
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                formatTimer(mediaPlayer.getCurrentPosition());
-                                if(mediaPlayer.getCurrentPosition()+1 >= mediaPlayer.getDuration()){
-                                    startNextTrack();
-                                }
-                            }
-                        });
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
+                    runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                formatTimer(mediaPlayer.getCurrentPosition());
+                            }
+                        });
                 }
             }
         };
     }
-    public void startNextTrack(){
+    public void startNextTrack() throws IOException {
         if(mediaPlayer == null)
             return;
         if(position + 1 >= playList.size())
             return;
 
         position++;
-        setupCurrentTrack();
+        playCurrentTrack();
     }
-    public void startPreviousTrack(){
+    public void startPreviousTrack() throws IOException {
         if(mediaPlayer == null)
             return;
         if(position - 1 < 0)
             return;
 
         position--;
-        setupCurrentTrack();
+        playCurrentTrack();
     }
 
     public void setOnClickListeners(){
@@ -101,14 +133,22 @@ public class MainActivity extends AppCompatActivity {
         nextTrack.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startNextTrack();
+                try {
+                    startNextTrack();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         });
 
         previousTrack.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startPreviousTrack();
+                try {
+                    startPreviousTrack();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         });
 
@@ -123,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View v){
                 long timeForwarded = mediaPlayer.getCurrentPosition() + 5 * secondInMilliseconds;
                 if(timeForwarded > mediaPlayer.getDuration()){
-                    timeForwarded = mediaPlayer.getDuration();
+                    return;
                 }
                 mediaPlayer.seekTo(timeForwarded, MediaPlayer.SEEK_PREVIOUS_SYNC);
             }
@@ -146,37 +186,48 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 position = 0;
                 Collections.shuffle(playList);
-                setupCurrentTrack();
+                try {
+                    playCurrentTrack();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         });
     }
 
-    public void setupCurrentTrack(){
-        currentTrack = playList.get(position);
-        Integer trackId = currentTrack.getId();
-        String trackName = currentTrack.getName();
-        title.setText(trackName);
-        mediaPlayer.release();
-        mediaPlayer = MediaPlayer.create(this, trackId);
+    public void playCurrentTrack() throws IOException {
+        mediaPlayer.reset();
+        setCurrentTrack();
         mediaPlayer.start();
     }
-    public void setupMediaPlayer(){
 
+    public void setCurrentTrack() throws IOException {
         currentTrack = playList.get(position);
-        Integer trackId = currentTrack.getId();
-        String trackName = currentTrack.getName();
-        title.setText(trackName);
+        title.setText(currentTrack.getName());
+        mediaPlayer.setDataSource(currentTrack.getData());
+        mediaPlayer.prepare();
+    }
 
-        mediaPlayer = MediaPlayer.create(this, trackId);
+    public void setupMediaPlayer() throws IOException {
+        mediaPlayer = new MediaPlayer();
+        setCurrentTrack();
         setTimerThread();
         timer_thread.start();
+        setupOnCompletionListener();
     }
-    public void setPlayList(){
-        position = 0;
-        playList = new ArrayList<>();
-        playList.add(new Track(R.raw.the_thing_that_should_not_be, "The Thing That Should Not Be"));
-        playList.add(new Track(R.raw.battery, "Battery"));
-        playList.add(new Track(R.raw.master_of_puppets, "Master of Puppets"));
+
+    private void setupOnCompletionListener() {
+        mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+            @Override
+            public void onCompletion(MediaPlayer mp) {
+                try {
+                    startNextTrack();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+            }
+        });
     }
 
     public void bindButtons(){
@@ -191,8 +242,8 @@ public class MainActivity extends AppCompatActivity {
         randomiseTracks = findViewById(R.id.button_randomise_tracks);
 
     }
-    public void formatTimer(long timeInMiliseconds){
-        int timeInSeconds = (int)(timeInMiliseconds / secondInMilliseconds);
+    public void formatTimer(long timeInMilliseconds){
+        int timeInSeconds = (int)(timeInMilliseconds / secondInMilliseconds);
         int minutes = timeInSeconds / 60;
         int seconds = timeInSeconds % 60;
 

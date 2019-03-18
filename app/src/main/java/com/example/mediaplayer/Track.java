@@ -3,10 +3,10 @@ package com.example.mediaplayer;
 public class Track {
     private String name;
 
-    private int id;
+    private String data;
 
-    public Track(int id, String name) {
-        this.id = id;
+    public Track(String data, String name) {
+        this.data = data;
         this.name = name;
     }
 
@@ -18,10 +18,10 @@ public class Track {
         this.name = name;
     }
 
-    public int getId() {
-        return id;
+    public String getData() {
+        return data;
     }
-    public void setId(int id) {
-        this.id = id;
+    public void setData(String data) {
+        this.data = data;
     }
 }
